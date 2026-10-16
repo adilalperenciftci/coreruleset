@@ -48,27 +48,31 @@
 ##! (`/*x*y*/` and `/*a/b*/` match). Each run starts with a character other than `*` or
 ##! `/`; do not make that repetition unbounded because repeated comment starts then cause
 ##! a quadratic scan on backtracking engines.
+##! Keep the scans between JSON delimiters and function parentheses bounded as well. An
+##! unbounded negated character class rescans the remaining input for every unterminated
+##! candidate, which makes failed matches quadratic on non-JIT PCRE2. Candidates that
+##! reach the bound match immediately so padding cannot turn a detection into a bypass.
 
 ##! This regex relies on the `removeWhitespace` transformation.
 
 ##!+ i
 
 ##!> define quotes [\"'`]
-##!> define operators (?:@|@>|<@|@\?|@@|\?|\?&|\?\|#>|#>>|#-|->>|<|>|->|-)
+##!> define operators (?:@|@>|<@|@\?|@@|\?|\?&|\?\||#>|#>>|#-|->>|<|>|->|-)
 ##!> define json_starting_brackets [[{]
 ##!> define sqlite_path \$[.[]
-##!> define something_except_json_ending_brackets [^}\]#]*
+##!> define something_except_json_ending_brackets [^}\]#]
 ##!> define json_ending_brackets [\]}]+
 ##!> define sql_comment (/\*.*?\*/)?
 ##!> define non_greedy_jsonb (?:::{{sql_comment}}jsonb?)?
 
 ##!> assemble
   ##! SQLite + PostgreSQL
-  {{quotes}}{{json_starting_brackets}}{{something_except_json_ending_brackets}}{{json_ending_brackets}}{{quotes}}
-  {{operators}}{{quotes}}{{json_starting_brackets}}{{something_except_json_ending_brackets}}{{json_ending_brackets}}{{quotes}}
+  {{quotes}}{{json_starting_brackets}}(?:{{something_except_json_ending_brackets}}{1000}|{{something_except_json_ending_brackets}}{0,999}{{json_ending_brackets}}{{quotes}})
+  {{operators}}{{quotes}}{{json_starting_brackets}}(?:{{something_except_json_ending_brackets}}{1000}|{{something_except_json_ending_brackets}}{0,999}{{json_ending_brackets}}{{quotes}})
   {{operators}}{{quotes}}{{sqlite_path}}
 
   ##! MySQL
-  (?:^(?:(?:or|xor)(?:not)?|andnot|[0-9]+(?:and|or|xor)(?:not)?)?|[^a-z0-9_](?:(?:[0-9]+)?(?:and|or|xor)(?:not)?)?)json_extract\b[^\(]*\([^)]*\)
+  (?:^(?:(?:or|xor)(?:not)?|andnot|[0-9]+(?:and|or|xor)(?:not)?)?|[^a-z0-9_](?:(?:[0-9]+)?(?:and|or|xor)(?:not)?)?)json_extract\b(?:[^\(]{1000}|[^\(]{0,999}\((?:[^)]{1000}|[^)]{0,999}\)))
   {{quotes}}(?:/\*[^*]*\*+(?:[^*/][^*]*\*+){0,8}/)?member(?:/\*[^*]*\*+(?:[^*/][^*]*\*+){0,8}/)?of(?:\((?:[\"'`\[{(@+\-.0-9]|/\*|null|true|false)|/\*|#|--)
 ##!<
